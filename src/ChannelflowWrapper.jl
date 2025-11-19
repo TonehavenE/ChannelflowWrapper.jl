@@ -114,7 +114,7 @@ function coeff2field(source_coeffs::AbstractString, ijklfile::AbstractString, fi
     flags = kwargs_to_flags(kwargs)
     run(`$(Channelflow_jll.projectfield()) $flags -x $source_coeffs $ijklfile $field_example $output_working`)
 
-    working_file = output_working
+    working_file = "u" * output_working
 
     if isfile(working_file)
         mv(working_file, output; force=true)
