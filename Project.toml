@@ -8,7 +8,7 @@ Channelflow_jll = "3f71b17c-0b5c-5f71-8ab7-7b799a58f30d"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 
 [compat]
-Channelflow_jll = "1.0.3"
+Channelflow_jll = "~1"
 DelimitedFiles = "1.9.1"
 julia = "1.11"
 
