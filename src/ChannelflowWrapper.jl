@@ -109,7 +109,7 @@ function coeff2field(source_coeffs::AbstractString, ijklfile::AbstractString, fi
     verify_file(field_example)
 
 
-    output_target = occursin(".asc", output) ? output : output * ".asc"
+    output_target = occursin(".nc", output) ? output : output * ".nc"
     dir_target, fname_base = splitdir(output_target)
     dir_target = isempty(dir_target) ? "." : dir_target
     output_working = fname_base
