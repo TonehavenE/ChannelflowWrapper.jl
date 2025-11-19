@@ -9,9 +9,9 @@ import Channelflow_jll
 
 include("utilities.jl")
 """
-    field_to_coeff(ijklfile, source, output; kwargs...)
+    field2coeff(ijklfile, source, output; kwargs...)
 
-`field_to_coeff` takes a `source` (full velocity field) and projects it onto the
+`field2coeff` takes a `source` (full velocity field) and projects it onto the
 ODE basis defined by `ijklfile`, storing the resulting coefficient vector in `output`.
 
 In addition to writing to the `output` file, this returns the vector of ODE coefficients.
@@ -32,7 +32,7 @@ This calls the Channelflow binary `projectfield` in its default mode.
 - `o::String`: Directory for basis plots (default: "plots/").
 - `A::String`: File path to load inner product matrix from.
 """
-function field_to_coeff(ijklfile::AbstractString, source::AbstractString, output_base::AbstractString; kwargs...)
+function field2coeff(ijklfile::AbstractString, source::AbstractString, output_base::AbstractString; kwargs...)
     verify_file(ijklfile)
     verify_file(source)
     output_target = occursin(".asc", output_base) ? output_base : output_base * ".asc"
@@ -72,7 +72,7 @@ function field_to_coeff(ijklfile::AbstractString, source::AbstractString, output
 end
 
 """
-    field_to_coeff(ijkl::AbstractMatrix, source, output; kwargs...)
+    field2coeff(ijkl::AbstractMatrix, source, output; kwargs...)
 
 Converts a field to the coefficient basis described by `ijkl`, where `ijkl` is a
 Julia matrix rather than a file.
@@ -86,7 +86,7 @@ function field2coeff(ijkl::AbstractMatrix, source::AbstractString, output::Abstr
 end
 
 """
-    coeff_to_field(source_coeffs, ijklfile, field_example, output; kwargs...)
+    coeff2field(source_coeffs, ijklfile, field_example, output; kwargs...)
 
 Converts a file containing ODE coefficients (`source_coeffs`) back into a full
 velocity field (`output`), using `field_example` as a grid template.
@@ -101,9 +101,9 @@ This calls the Channelflow binary `projectfield` with the `-x` flag.
 - `output::AbstractString`: The file path to store the reconstructed output velocity field.
 
 # Keyword Arguments
-- All flags from `field_to_coeff` are also valid here, e.g., `nrm=true`
+- All flags from `field2coeff` are also valid here, e.g., `nrm=true`
 """
-function coeff_to_field(source_coeffs::AbstractString, ijklfile::AbstractString, field_example::AbstractString, output::AbstractString; kwargs...)
+function coeff2field(source_coeffs::AbstractString, ijklfile::AbstractString, field_example::AbstractString, output::AbstractString; kwargs...)
     verify_file(source_coeffs)
     verify_file(ijklfile)
     verify_file(field_example)
@@ -124,7 +124,7 @@ function coeff_to_field(source_coeffs::AbstractString, ijklfile::AbstractString,
 end
 
 """
-    coeff_to_field(x, ijkl, field_example, output; kwargs...)
+    coeff2field(x, ijkl, field_example, output; kwargs...)
 
 Converts a coefficient vector `x` and `ijkl` matrix directly, without needing to
 store them in files. The result is stored in a file at `output`.
@@ -143,7 +143,7 @@ end
 """
     projectfield(ijklfile, source, target; flags)
 
-Legacy interface, defer to `field_to_coeff` ideally.
+Legacy interface, defer to `field2coeff` ideally.
 """
 function projectfield(ijklfile, source, target; kwargs...)
     field2coeff(ijklfile, source, target; kwargs=kwargs)
@@ -152,7 +152,7 @@ end
 """
     projectfield(source_coeffs, ijklfile, field_example, output; flags)
 
-Legacy interface, defer to `coeff_to_field` ideally.
+Legacy interface, defer to `coeff2field` ideally.
 """
 function projectfield(source_coeffs, ijklfile, field_example, output; kwargs...)
     coeff2field(source_coeffs, ijklfile, field_example, output; kwargs=kwargs)
