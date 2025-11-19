@@ -10,7 +10,7 @@ DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 [compat]
 Channelflow_jll = "1.0.2"
 DelimitedFiles = "1.9.1"
-julia = "1.7"
+julia = "1.11"
 
 [sources]
 Channelflow_jll = {url = "https://github.com/TonehavenE/Channelflow_jll.jl"}
