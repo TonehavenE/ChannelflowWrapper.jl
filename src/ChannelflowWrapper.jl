@@ -108,10 +108,14 @@ function coeff2field(source_coeffs::AbstractString, ijklfile::AbstractString, fi
     verify_file(ijklfile)
     verify_file(field_example)
 
-    dir_target, fname_base = splitdir(output)
+    println("in the child function, kwargs is $(kwargs)")
+
+    output_target = occursin(".asc", output) ? output : output * ".asc"
+    dir_target, fname_base = splitdir(output_target)
     dir_target = isempty(dir_target) ? "." : dir_target
     output_working = fname_base
     flags = kwargs_to_flags(kwargs)
+    println("flags is $flags")
     run(`$(Channelflow_jll.projectfield()) $flags -x $source_coeffs $ijklfile $field_example $output_working`)
 
     working_file = "u" * output_working
@@ -134,7 +138,9 @@ function coeff2field(x::AbstractVector, ijkl::AbstractMatrix, field_example::Abs
     ijkl2file(ijkl, "temp_ijkl.asc")
     save(x, "temp_x.asc")
 
-    coeff2field("temp_x.asc", "temp_ijkl.asc", field_example, output; kwargs=kwargs)
+    println("in the parent function, kwargs is $(kwargs)")
+
+    coeff2field("temp_x.asc", "temp_ijkl.asc", field_example, output; kwargs...)
 
     rm("temp_ijkl.asc")
     rm("temp_x.asc")
