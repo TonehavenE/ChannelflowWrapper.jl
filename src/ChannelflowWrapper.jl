@@ -3,7 +3,7 @@ The ChannelflowWrapper.jl module is designed to provide convenient wrappers arou
 """
 module ChannelflowWrapper
 
-export projectfield, field2coeff, coeff2field, changegrid, findsoln, continuesoln, plotfield
+export projectfield, field2coeff, coeff2field, changegrid, findsoln, continuesoln, plotfield, L2op, L2norm, diffop, addfields, addbaseflow, findsymmetries
 
 import Channelflow_jll
 
@@ -362,6 +362,263 @@ function plotfield(flowfield::AbstractString; kwargs...)
     flags = kwargs_to_flags(kwargs)
     # The Channelflow binary is named 'plotfield'
     run(`$(Channelflow_jll.plotfield()) $flags $flowfield`)
+end
+
+"""
+    L2op(field1::AbstractString, field2::AbstractString; kwargs...)
+
+Computes L2-related operations between two flow fields, such as L2 distance
+or L2 inner product.
+
+This is a Julia wrapper for the Channelflow binary `L2op`.
+
+# Arguments
+- `field1::AbstractString`: The file path to the first input flow field.
+- `field2::AbstractString`: The file path to the second input flow field.
+
+# Keyword Arguments
+- `dist::Bool`: Compute the L2 distance between the two fields.
+- `ip::Bool`: Compute the L2 inner product of the two fields: L2IP(field1, field2).
+- `n::Bool`: Normalize by norms of each field.
+- `sx::Bool`: Shift by Lx/2 in the x-direction.
+- `sz::Bool`: Shift by Lz/2 in the z-direction.
+- `sd::Bool`: Save the difference field.
+
+# Returns
+- `Float64`: The computed L2 distance or inner product value.
+
+# Example Usage
+```julia
+# Compute L2 distance between two fields
+distance = L2op("u1.nc", "u2.nc"; dist=true)
+
+# Compute normalized L2 inner product
+inner_product = L2op("u1.nc", "u2.nc"; ip=true, n=true)
+
+# Compute L2 distance with x-shift
+distance = L2op("u1.nc", "u2.nc"; dist=true, sx=true)
+```
+"""
+function L2op(field1::AbstractString, field2::AbstractString; kwargs...)
+    verify_file(field1)
+    verify_file(field2)
+    flags = kwargs_to_flags(kwargs)
+
+    # Capture the output from the L2op binary
+    println("The flags are: $flags")
+    println(`$flags $field1 $field2`)
+    output = read(`$(Channelflow_jll.L2op()) $flags $field1 $field2`, String)
+
+    # Parse the output to extract the numerical value
+    # The output typically contains the result as a number
+    result = parse(Float64, strip(output))
+
+    return result
+end
+
+"""
+	L2norm(field::AbstractString)
+
+Computes the L2 Norm of a flow field.
+"""
+function L2norm(field::AbstractString)
+    return sqrt(L2op(field, field; ip=true))
+end
+
+"""
+    diffop(infield::AbstractString, outfield::AbstractString; kwargs...)
+
+Applies a differential operation to a given flow field.
+
+This is a Julia wrapper for the Channelflow binary `diffop`.
+
+# Arguments
+- `infield::AbstractString`: The file path to the input flow field.
+- `outfield::AbstractString`: The file path to store the output field.
+
+# Keyword Arguments
+
+## Differential Operations:
+- `ddx::Bool`: Apply d/dx.
+- `ddy::Bool`: Apply d/dy.
+- `ddz::Bool`: Apply d/dz.
+- `grad::Bool`: Apply gradient.
+- `lapl::Bool`: Apply laplacian.
+- `curl::Bool`: Apply curl.
+- `div::Bool`: Compute divergence.
+- `nonl::Bool`: Compute Navier-Stokes nonlinearity.
+- `e::Bool`: Compute energy operator.
+- `Q::Bool`: Compute Q criterion.
+- `norm::Bool`: Compute pointwise vector norm of field.
+- `xavg::Bool`: Compute the streamwise average.
+
+## Base Flow Options:
+- `bf::String`: Set base flow to one of ["zero", "laminar", "linear", "parabolic", "suction"] (default: "laminar").
+- `ub::String`: Input baseflow file of arbitrary U-baseflow (takes precedence over `-bf` option).
+- `wb::String`: Input baseflow file of arbitrary W-baseflow (takes precedence over `-bf` option).
+- `R::Real`: Pseudo-Reynolds number = 1/nu (default: 400).
+- `nu::Real`: Kinematic viscosity (takes precedence over Reynolds if nonzero, default: 0).
+- `mc::String`: Fix one of two flow constraints ["gradp", "bulkv"] (default: "gradp").
+- `dPds::Real`: Magnitude of imposed pressure gradient along streamwise s (default: 0).
+- `Ubulk::Real`: Magnitude of imposed bulk velocity (default: 0).
+- `Uwall::Real`: Magnitude of imposed wall velocity, +/-Uwall at y = +/-h (default: 1).
+- `theta::Real`: Angle of base flow relative to x-axis (default: 0).
+- `Vs::Real`: Wall-normal suction velocity (default: 0).
+- `Uf::Real`: Multiply baseflow by this factor before adding (default: 1).
+
+# Example Usage
+```julia
+# Compute the gradient of a field
+diffop("u.nc", "grad_u.nc"; grad=true)
+
+# Compute the laplacian
+diffop("u.nc", "lapl_u.nc"; lapl=true)
+
+# Compute divergence
+diffop("u.nc", "div_u.nc"; div=true)
+
+# Compute Navier-Stokes nonlinearity with a laminar base flow at Re=400
+diffop("u.nc", "nonl_u.nc"; nonl=true, bf="laminar", R=400)
+
+# Compute streamwise average
+diffop("u.nc", "u_xavg.nc"; xavg=true)
+```
+"""
+function diffop(infield::AbstractString, outfield::AbstractString; kwargs...)
+    verify_file(infield)
+    flags = kwargs_to_flags(kwargs)
+    run(`$(Channelflow_jll.diffop()) $flags $infield $outfield`)
+end
+
+"""
+    addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:AbstractString}...; kwargs...)
+
+Creates a linear combination of flowfields.
+
+This is a Julia wrapper for the Channelflow binary `addfields` with the `-lc` flag.
+
+# Arguments
+- `outfield::AbstractString`: The file path to store the output field.
+- `fields_and_coeffs::Pair{<:Real,<:AbstractString}...`: Pairs of coefficients and field paths,
+  e.g., `c1 => "u1.nc", c2 => "u2.nc"` to compute `c1*u1 + c2*u2`.
+
+# Keyword Arguments
+- `lc::Bool`: Create a linear combination of flowfields (automatically set to true).
+
+# Example Usage
+```julia
+# Create linear combination: 0.5*u1 + 0.3*u2 - 0.2*u3
+addfields("u_combo.nc", 0.5 => "u1.nc", 0.3 => "u2.nc", -0.2 => "u3.nc")
+
+# Simple addition: u1 + u2
+addfields("u_sum.nc", 1.0 => "u1.nc", 1.0 => "u2.nc")
+```
+"""
+function addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:AbstractString}...; kwargs...)
+    # Verify all input fields exist
+    for (coeff, field) in fields_and_coeffs
+        verify_file(field)
+    end
+
+    flags = kwargs_to_flags(kwargs)
+
+    # Build the command: addfields [flags] c0 u0 c1 u1 c2 u2 ... outfield
+    cmd = `$(Channelflow_jll.addfields()) -lc`
+
+    # Add flags
+    for flag in flags
+        cmd = `$cmd $flag`
+    end
+
+    # Add coefficient-field pairs
+    for (coeff, field) in fields_and_coeffs
+        cmd = `$cmd $(string(coeff)) $field`
+    end
+
+    # Add output field
+    cmd = `$cmd $outfield`
+
+    run(cmd)
+end
+
+"""
+    addbaseflow(infield::AbstractString, outfield::AbstractString; kwargs...)
+
+Adds a baseflow to a given flowfield.
+
+This is a Julia wrapper for the Channelflow binary `addfields` with the `-ab` flag.
+
+# Arguments
+- `infield::AbstractString`: The file path to the input flow field.
+- `outfield::AbstractString`: The file path to store the output field.
+
+# Keyword Arguments
+
+## Base Flow Options:
+- `bf::String`: Set base flow to one of ["zero", "laminar", "linear", "parabolic", "suction"] (default: "laminar").
+- `ub::String`: Input baseflow file of arbitrary U-baseflow (takes precedence over `-bf` option).
+- `wb::String`: Input baseflow file of arbitrary W-baseflow (takes precedence over `-bf` option).
+- `R::Real`: Pseudo-Reynolds number = 1/nu (default: 400).
+- `nu::Real`: Kinematic viscosity (takes precedence over Reynolds if nonzero, default: 0).
+- `mc::String`: Fix one of two flow constraints ["gradp", "bulkv"] (default: "gradp").
+- `dPds::Real`: Magnitude of imposed pressure gradient along streamwise s (default: 0).
+- `Ubulk::Real`: Magnitude of imposed bulk velocity (default: 0).
+- `Uwall::Real`: Magnitude of imposed wall velocity, +/-Uwall at y = +/-h (default: 1).
+- `theta::Real`: Angle of base flow relative to x-axis (default: 0).
+- `Vs::Real`: Wall-normal suction velocity (default: 0).
+- `Uf::Real`: Multiply baseflow by this factor before adding (default: 1).
+
+# Example Usage
+```julia
+# Add laminar baseflow at Re=250
+addbaseflow("u.nc", "u_with_base.nc"; bf="laminar", R=250)
+
+# Add parabolic baseflow
+addbaseflow("u.nc", "u_with_base.nc"; bf="parabolic", R=400)
+```
+"""
+function addbaseflow(infield::AbstractString, outfield::AbstractString; kwargs...)
+    verify_file(infield)
+
+    # Force the -ab flag
+    flags = kwargs_to_flags(kwargs)
+
+    run(`$(Channelflow_jll.addfields()) -ab $flags $infield $outfield`)
+end
+
+"""
+    findsymmetries(flowfield::AbstractString; kwargs...)
+
+Finds the symmetries satisfied by a given flow field.
+
+This is a Julia wrapper for the Channelflow binary `findsymmetries`.
+
+# Arguments
+- `flowfield::AbstractString`: The file path to the input flow field.
+
+# Keyword Arguments
+- `a::Bool`: Check antisymmetries as well.
+- `v::Bool`: Print error of each checked symmetry (verbose mode).
+- `nx::Int`: Check x-translations over set {0, nx-1}/nx * Lx (default: 4).
+- `nz::Int`: Check z-translations over set {0, nz-1}/nz * Lz (default: 4).
+- `e::Real`: Cut-off for symmetry error (default: 1e-06).
+
+# Example Usage
+```julia
+# Find symmetries with default settings
+findsymmetries("u.nc")
+
+# Find symmetries and antisymmetries with verbose output
+findsymmetries("u.nc"; a=true, v=true)
+
+# Check finer grid of translations with tighter tolerance
+findsymmetries("u.nc"; nx=8, nz=8, e=1e-08)
+```
+"""
+function findsymmetries(flowfield::AbstractString; kwargs...)
+    verify_file(flowfield)
+    flags = kwargs_to_flags(kwargs)
+    run(`$(Channelflow_jll.findsymmetries()) $flags $flowfield`)
 end
 
 end # end module
