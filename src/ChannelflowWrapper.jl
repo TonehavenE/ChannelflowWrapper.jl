@@ -32,29 +32,30 @@ This calls the Channelflow binary `projectfield` in its default mode.
 - `o::String`: Directory for basis plots (default: "plots/").
 - `A::String`: File path to load inner product matrix from.
 """
-function field2coeff(ijklfile::AbstractString, source::AbstractString, output_base::AbstractString; kwargs...)
+function field2coeff(
+    ijklfile::AbstractString,
+    source::AbstractString,
+    output_base::AbstractString;
+    workdir::AbstractString=".",
+    kwargs...
+)
     verify_file(ijklfile)
     verify_file(source)
+    mkpath(workdir)
     output_target = occursin(".asc", output_base) ? output_base : output_base * ".asc"
-
-    # Get the directory (where the final file should go) and the filename (what the binary needs)
-    dir_target, fname_base = splitdir(output_target)
-
-    # If no directory is specified, default to the current directory
-    dir_target = isempty(dir_target) ? "." : dir_target
-
-    # The Channelflow binary will write to the current directory ('.')
-    output_working = fname_base
-
-    intermediate_working = "x" * fname_base
-    junk_working = "u" * fname_base
+    output_target = abspath(output_target)
+    tag = string(time_ns())
+    output_working = "pf_" * tag * ".asc"
+    intermediate_working = joinpath(workdir, "x" * output_working)
+    junk_working = joinpath(workdir, "u" * output_working)
 
     flags = kwargs_to_flags(kwargs)
 
-    # We must change to the target directory for the binary to work correctly if the path is relative.
-    # However, since the binary only takes a basename, we'll run it in the current directory ('.') 
-    # and use the basename for the output file.
-    run(`$(Channelflow_jll.projectfield()) $flags $ijklfile $source $output_working`)
+    cmd = Cmd(
+        `$(Channelflow_jll.projectfield()) $flags $(abspath(ijklfile)) $(abspath(source)) $output_working`;
+        dir=workdir
+    )
+    run(cmd)
 
     # Check if the intermediate file (which has the coefficients) exists before trying to move it
     if isfile(intermediate_working)
@@ -77,11 +78,19 @@ end
 Converts a field to the coefficient basis described by `ijkl`, where `ijkl` is a
 Julia matrix rather than a file.
 """
-function field2coeff(ijkl::AbstractMatrix, source::AbstractString, output::AbstractString; kwargs...)
-    # This function uses temp files and calls the other method.
-    ijkl2file(ijkl, "temp_ijkl.asc")
-    coeffs = field2coeff("temp_ijkl.asc", source, output; kwargs...)
-    rm("temp_ijkl.asc")
+function field2coeff(
+    ijkl::AbstractMatrix,
+    source::AbstractString,
+    output::AbstractString;
+    workdir::AbstractString=".",
+    kwargs...
+)
+    mkpath(workdir)
+    tag = string(time_ns())
+    ijkl_path = joinpath(workdir, "temp_ijkl_" * tag * ".asc")
+    ijkl2file(ijkl, ijkl_path)
+    coeffs = field2coeff(ijkl_path, source, output; workdir=workdir, kwargs...)
+    rm(ijkl_path)
     return coeffs
 end
 
@@ -103,23 +112,34 @@ This calls the Channelflow binary `projectfield` with the `-x` flag.
 # Keyword Arguments
 - All flags from `field2coeff` are also valid here, e.g., `nrm=true`
 """
-function coeff2field(source_coeffs::AbstractString, ijklfile::AbstractString, field_example::AbstractString, output::AbstractString; kwargs...)
+function coeff2field(
+    source_coeffs::AbstractString,
+    ijklfile::AbstractString,
+    field_example::AbstractString,
+    output::AbstractString;
+    workdir::AbstractString=".",
+    kwargs...
+)
     verify_file(source_coeffs)
     verify_file(ijklfile)
     verify_file(field_example)
 
-
+    mkpath(workdir)
     output_target = occursin(".nc", output) ? output : output * ".nc"
-    dir_target, fname_base = splitdir(output_target)
-    dir_target = isempty(dir_target) ? "." : dir_target
-    output_working = fname_base
+    output_target = abspath(output_target)
+    tag = string(time_ns())
+    output_working = "pf_" * tag * ".nc"
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.projectfield()) $flags -x $source_coeffs $ijklfile $field_example $output_working`)
+    cmd = Cmd(
+        `$(Channelflow_jll.projectfield()) $flags -x $(abspath(source_coeffs)) $(abspath(ijklfile)) $(abspath(field_example)) $output_working`;
+        dir=workdir
+    )
+    run(cmd)
 
-    working_file = "u" * output_working
+    working_file = joinpath(workdir, "u" * output_working)
 
     if isfile(working_file)
-        mv(working_file, output; force=true)
+        mv(working_file, output_target; force=true)
     else
         error("Channelflow binary failed to reconstruct the field. Expected file: $working_file")
     end
@@ -131,15 +151,25 @@ end
 Converts a coefficient vector `x` and `ijkl` matrix directly, without needing to
 store them in files. The result is stored in a file at `output`.
 """
-function coeff2field(x::AbstractVector, ijkl::AbstractMatrix, field_example::AbstractString, output::AbstractString; kwargs...)
-    # This function uses temp files and calls the other method.
-    ijkl2file(ijkl, "temp_ijkl.asc")
-    save(x, "temp_x.asc")
+function coeff2field(
+    x::AbstractVector,
+    ijkl::AbstractMatrix,
+    field_example::AbstractString,
+    output::AbstractString;
+    workdir::AbstractString=".",
+    kwargs...
+)
+    mkpath(workdir)
+    tag = string(time_ns())
+    ijkl_path = joinpath(workdir, "temp_ijkl_" * tag * ".asc")
+    x_path = joinpath(workdir, "temp_x_" * tag * ".asc")
+    ijkl2file(ijkl, ijkl_path)
+    save(x, x_path)
 
-    coeff2field("temp_x.asc", "temp_ijkl.asc", field_example, output; kwargs...)
+    coeff2field(x_path, ijkl_path, field_example, output; workdir=workdir, kwargs...)
 
-    rm("temp_ijkl.asc")
-    rm("temp_x.asc")
+    rm(ijkl_path)
+    rm(x_path)
 end
 
 """
@@ -147,8 +177,8 @@ end
 
 Legacy interface, defer to `field2coeff` ideally.
 """
-function projectfield(ijklfile, source, target; kwargs...)
-    field2coeff(ijklfile, source, target; kwargs=kwargs)
+function projectfield(ijklfile, source, target; workdir::AbstractString=".", kwargs...)
+    field2coeff(ijklfile, source, target; workdir=workdir, kwargs=kwargs)
 end
 
 """
@@ -156,8 +186,8 @@ end
 
 Legacy interface, defer to `coeff2field` ideally.
 """
-function projectfield(source_coeffs, ijklfile, field_example, output; kwargs...)
-    coeff2field(source_coeffs, ijklfile, field_example, output; kwargs=kwargs)
+function projectfield(source_coeffs, ijklfile, field_example, output; workdir::AbstractString=".", kwargs...)
+    coeff2field(source_coeffs, ijklfile, field_example, output; workdir=workdir, kwargs=kwargs)
 end
 
 
@@ -212,10 +242,11 @@ findsoln("u_Re350.nc"; eqb=true, R=350, T=10, symms="./sxy_sz_txz.asc")
 findsoln("u_guess.nc"; eqb=true, zrel=true, T=10, R=200, sigma="sigma_guess.asc", symms="sxytxz.asc")
 ```
 """
-function findsoln(guess_flowfield::AbstractString; kwargs...)
+function findsoln(guess_flowfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(guess_flowfield)
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.findsoln()) $flags $guess_flowfield`)
+    cmd = Cmd(`$(Channelflow_jll.findsoln()) $flags $(abspath(guess_flowfield))`; dir=workdir)
+    run(cmd)
 end
 
 
@@ -246,10 +277,11 @@ This calls the Channelflow binary `changegrid`.
 - `np0::Int` or `nproc0::Int`: Number of MPI-processes for transpose.
 - `np1::Int` or `nproc1::Int`: Number of MPI-processes for one fft.
 """
-function changegrid(infield::AbstractString, outfield::AbstractString; kwargs...)
+function changegrid(infield::AbstractString, outfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(infield)
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.changegrid()) $flags $infield $outfield`)
+    cmd = Cmd(`$(Channelflow_jll.changegrid()) $flags $(abspath(infield)) $(abspath(outfield))`; dir=workdir)
+    run(cmd)
 end
 
 """
@@ -300,10 +332,11 @@ continuesoln("ueqd_Re400.nc";
 )
 ```
 """
-function continuesoln(initial_flowfield::AbstractString; kwargs...)
+function continuesoln(initial_flowfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(initial_flowfield)
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.continuesoln()) $flags $initial_flowfield`)
+    cmd = Cmd(`$(Channelflow_jll.continuesoln()) $flags $(abspath(initial_flowfield))`; dir=workdir)
+    run(cmd)
 end
 
 const _FINDEIGENVALS_FLAG_MAP = Dict{Symbol, String}(
@@ -970,11 +1003,12 @@ plotfield("u_re400.nc"; xavg=true, spectra=true, outdir="plots")
 plotfield("u_re400.nc"; xval=2.5, zstride=2)
 """
 
-function plotfield(flowfield::AbstractString; kwargs...)
+function plotfield(flowfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(flowfield)
     flags = kwargs_to_flags(kwargs)
     # The Channelflow binary is named 'plotfield'
-    run(`$(Channelflow_jll.plotfield()) $flags $flowfield`)
+    cmd = Cmd(`$(Channelflow_jll.plotfield()) $flags $(abspath(flowfield))`; dir=workdir)
+    run(cmd)
 end
 
 """
@@ -1012,7 +1046,7 @@ inner_product = L2op("u1.nc", "u2.nc"; ip=true, n=true)
 distance = L2op("u1.nc", "u2.nc"; dist=true, sx=true)
 ```
 """
-function L2op(field1::AbstractString, field2::AbstractString; kwargs...)
+function L2op(field1::AbstractString, field2::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(field1)
     verify_file(field2)
     flags = kwargs_to_flags(kwargs)
@@ -1020,7 +1054,8 @@ function L2op(field1::AbstractString, field2::AbstractString; kwargs...)
     # Capture the output from the L2op binary
     println("The flags are: $flags")
     println(`$flags $field1 $field2`)
-    output = read(`$(Channelflow_jll.L2op()) $flags $field1 $field2`, String)
+    cmd = Cmd(`$(Channelflow_jll.L2op()) $flags $(abspath(field1)) $(abspath(field2))`; dir=workdir)
+    output = read(cmd, String)
 
     # Parse the output to extract the numerical value
     # The output typically contains the result as a number
@@ -1097,10 +1132,11 @@ diffop("u.nc", "nonl_u.nc"; nonl=true, bf="laminar", R=400)
 diffop("u.nc", "u_xavg.nc"; xavg=true)
 ```
 """
-function diffop(infield::AbstractString, outfield::AbstractString; kwargs...)
+function diffop(infield::AbstractString, outfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(infield)
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.diffop()) $flags $infield $outfield`)
+    cmd = Cmd(`$(Channelflow_jll.diffop()) $flags $(abspath(infield)) $(abspath(outfield))`; dir=workdir)
+    run(cmd)
 end
 
 const _PERTURBFIELD_FLAG_MAP = Dict{Symbol, String}(
@@ -1189,7 +1225,7 @@ addfields("u_combo.nc", 0.5 => "u1.nc", 0.3 => "u2.nc", -0.2 => "u3.nc")
 addfields("u_sum.nc", 1.0 => "u1.nc", 1.0 => "u2.nc")
 ```
 """
-function addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:AbstractString}...; kwargs...)
+function addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:AbstractString}...; workdir::AbstractString=".", kwargs...)
     # Verify all input fields exist
     for (coeff, field) in fields_and_coeffs
         verify_file(field)
@@ -1198,7 +1234,7 @@ function addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:Ab
     flags = kwargs_to_flags(kwargs)
 
     # Build the command: addfields [flags] c0 u0 c1 u1 c2 u2 ... outfield
-    cmd = `$(Channelflow_jll.addfields()) -lc`
+    cmd = Cmd(`$(Channelflow_jll.addfields()) -lc`; dir=workdir)
 
     # Add flags
     for flag in flags
@@ -1207,11 +1243,11 @@ function addfields(outfield::AbstractString, fields_and_coeffs::Pair{<:Real,<:Ab
 
     # Add coefficient-field pairs
     for (coeff, field) in fields_and_coeffs
-        cmd = `$cmd $(string(coeff)) $field`
+        cmd = `$cmd $(string(coeff)) $(abspath(field))`
     end
 
     # Add output field
-    cmd = `$cmd $outfield`
+    cmd = `$cmd $(abspath(outfield))`
 
     run(cmd)
 end
@@ -1252,13 +1288,14 @@ addbaseflow("u.nc", "u_with_base.nc"; bf="laminar", R=250)
 addbaseflow("u.nc", "u_with_base.nc"; bf="parabolic", R=400)
 ```
 """
-function addbaseflow(infield::AbstractString, outfield::AbstractString; kwargs...)
+function addbaseflow(infield::AbstractString, outfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(infield)
 
     # Force the -ab flag
     flags = kwargs_to_flags(kwargs)
 
-    run(`$(Channelflow_jll.addfields()) -ab $flags $infield $outfield`)
+    cmd = Cmd(`$(Channelflow_jll.addfields()) -ab $flags $(abspath(infield)) $(abspath(outfield))`; dir=workdir)
+    run(cmd)
 end
 
 """
@@ -1290,10 +1327,11 @@ findsymmetries("u.nc"; a=true, v=true)
 findsymmetries("u.nc"; nx=8, nz=8, e=1e-08)
 ```
 """
-function findsymmetries(flowfield::AbstractString; kwargs...)
+function findsymmetries(flowfield::AbstractString; workdir::AbstractString=".", kwargs...)
     verify_file(flowfield)
     flags = kwargs_to_flags(kwargs)
-    run(`$(Channelflow_jll.findsymmetries()) $flags $flowfield`)
+    cmd = Cmd(`$(Channelflow_jll.findsymmetries()) $flags $(abspath(flowfield))`; dir=workdir)
+    run(cmd)
 end
 
 end # end module
