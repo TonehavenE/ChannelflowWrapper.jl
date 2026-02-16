@@ -19,6 +19,45 @@ using ChannelflowWrapper
         changegrid("../data/uTW2-2pi1piRe250.nc", "changegrid_example.nc")
     end
 
+    @time @testset "simulateflow" begin
+        simulateflow("../data/uTW2-2pi1piRe250.nc";
+            T=0, dT=1, s=1,
+            outdir="simulateflow_out", label="smoke",
+            variabledt=false, chebyNorm=false)
+        @test isfile("simulateflow_out/smoke0.nc")
+    end
+
+    @time @testset "findeigenvals" begin
+        findeigenvals("../data/EQ7Re250-32x49x40.nc";
+            T=0, N=0, outdir="findeig_out",
+            variabledt=false)
+        @test isfile("findeig_out/eigenvalsflags.txt")
+    end
+
+    @time @testset "perturbfield" begin
+        perturbfield("../data/uTW2-2pi1piRe250.nc", "perturbed_output.nc";
+            seed=2, smoothness=0.5, magnitude=0.01, meanflow=true)
+        @test isfile("perturbed_output.nc")
+    end
+
+    @time @testset "edgetracking" begin
+        @test_throws ArgumentError edgetracking("this_file_should_not_exist.nc")
+    end
+
+    @time @testset "fieldprops" begin
+        fieldprops("../data/uTW2-2pi1piRe250.nc"; n=true, dg=4)
+        @test true
+    end
+
+    @time @testset "randomfield" begin
+        randomfield("random_output.nc";
+            Nx=16, Ny=17, Nz=16,
+            lx=2, lz=1,
+            seed=3, magnitude=0.01,
+            meanflow=true)
+        @test isfile("random_output.nc")
+    end
+
 
     @time @testset "L2op" begin
         # Compute L2 distance between a field and itself (should be 0)
